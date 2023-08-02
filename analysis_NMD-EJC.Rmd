@@ -1,0 +1,83 @@
+---
+title: "analysis NMD"
+output: html_document
+date: "2023-08-02"
+---
+
+## Load required libraries
+```{r}
+library(markdown)
+library(rmarkdown)
+library(NMF)
+library(ggplot2)
+library(readxl)
+library(tidyverse)
+library(DESeq2)
+```
+
+## Data loading and processing
+The following CircRNACount file contains multiple samples some of which might be filtered
+```{r eval=FALSE}
+data_count <- read.table("CircRNACount", sep = "\t", header = T)
+```
+
+Read the CircCoordinates file which also stores the annotation information for circularRNAs. Create id of circRNA that includes annotation column because there are multiple entries with same coordinates but annotated differently and also have different counts. So keep these entries separate
+```{r eval=FALSE}
+data_coordinate <- read.table("CircCoordinates", sep = "\t", header = T)
+```
+
+Join the two dataframes
+```{r eval=FALSE}
+data_join <- cbind(data_count, data_coordinate)
+data_join$id <- paste(data_join$Chr, data_join$Start, data_join$End, data_join$Gene , sep = "_")
+```
+
+
+Read the sample ID excel file
+```{r eval=FALSE}
+samples <- read_xlsx(path = "data.xlsx", sheet = "Fractionation Seq (LS)", col_names = T)
+```
+
+Grep on samples from fraction-seq data from https://redmine.dieterichlab.org/projects/circularrnaejcnmd/wiki
+```{r eval=FALSE}
+selected_samples <- unlist(lapply(samples$CCG_Sample_ID, function(x) grep(x, names(data_join), value = T)))
+data_count_fseq <- data_join[,c("id", selected_samples)]
+rownames(data_count_fseq) <- data_count_fseq$id
+data_count_fseq$id <- NULL
+```
+
+Remove "_STARmappingChimeric.out.junction" from column names aka sample names
+```{r eval=FALSE}
+colnames(data_count_fseq) = gsub("_STARmappingChimeric.out.junction", "", colnames(data_count_fseq))
+```
+
+Add counts from two lanes to create a final count matrix
+```{r eval=FALSE}
+test <- lapply(samples$CCG_Sample_ID, function(x) as.data.frame(rowSums(data_count_fseq[,grepl(x,colnames(data_count_fseq))])))
+dim(bind_cols(test))
+final_data_count_fseq <- bind_cols(test)
+colnames(final_data_count_fseq) <- samples$CCG_Sample_ID
+```
+
+## Statistics
+First perform the differential expression analysis on this count matrix
+```{r eval=FALSE}
+coldata <- samples[,c("CCG_Sample_ID", "Condition", "Knockdown", "Replicate")]
+rownames(coldata) <- coldata$CCG_Sample_ID
+dds <- DESeqDataSetFromMatrix(final_data_count_fseq, colData = coldata, design = ~ Knockdown + Replicate)
+dds <- estimateSizeFactors(dds)
+dds <- DESeq(dds)
+res <- results(dds)
+```
+
+PCA analysis based on circular RNAs
+```{r}
+
+```
+
+
+Plot the heatmap of count matrix
+```{r}
+aheatmap(final_data_count_fseq)
+```
+
