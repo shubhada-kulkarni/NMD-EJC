@@ -13,6 +13,7 @@ library(ggplot2)
 library(readxl)
 library(tidyverse)
 library(DESeq2)
+library(pheatmap)
 ```
 
 ## Data loading and processing
@@ -60,24 +61,50 @@ colnames(final_data_count_fseq) <- samples$CCG_Sample_ID
 ```
 
 ## Statistics
-First perform the differential expression analysis on this count matrix
+First perform the PCA analysis based on circular RNAs count matrix
+```{r eval=FALSE}
+nsubnum <- sum( rowMeans( counts(dds, normalized=TRUE)) > 5 )
+vsd <- vst(dds, blind=FALSE, nsub = nsubnum)
+rld <- rlog(dds, blind=FALSE)
+head(assay(vsd), 3)
+```
+
+PCA plot
+```{r fig.align='center', fig.height=8, fig.width=8}
+pcadata <- plotPCA(vsd, intgroup = c("Knockdown", "Replicate"), returnData = T)
+percentVar <- round(100 * attr(pcadata, "percentVar"))
+ggplot(pcadata, aes(PC1, PC2, color=Knockdown, shape=Replicate)) + geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed() + theme(aspect.ratio=1)
+```
+
+Sample-sample distance matrix
+```{r eval=FALSE}
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- vsd$Condition
+colnames(sampleDistMatrix) <- NULL
+```
+
+Plot the heatmap of count matrix
+```{r fig.align='center', fig.height=10, fig.width=11}
+print(pheatmap(sampleDistMatrix, clustering_distance_rows=sampleDists, clustering_distance_cols=sampleDists)) #,col=colors))
+```
+
+There is clear separation between nuclear and cytoplasmic samples and also between different knockdown conditions. Next, perform the differential expression analysis on this count matrix to find differentially expressed transcript between various knockdown experiments. In this case, perform the nuclear versis cytoplasmic differential expression for all conditions i.e. knockdown experiments one-by-one.
 ```{r eval=FALSE}
 coldata <- samples[,c("CCG_Sample_ID", "Condition", "Knockdown", "Replicate")]
 rownames(coldata) <- coldata$CCG_Sample_ID
-dds <- DESeqDataSetFromMatrix(final_data_count_fseq, colData = coldata, design = ~ Knockdown + Replicate)
-dds <- estimateSizeFactors(dds)
-dds <- DESeq(dds)
-res <- results(dds)
-```
-
-PCA analysis based on circular RNAs
-```{r}
-
-```
-
-
-Plot the heatmap of count matrix
-```{r}
-aheatmap(final_data_count_fseq)
+list_res <- list()
+for (each_cond in unique(coldata$Knockdown)){
+  print(each_cond)
+  sub_samples <- coldata$CCG_Sample_ID[coldata$Knockdown == each_cond]
+  dds <- DESeqDataSetFromMatrix(final_data_count_fseq[,sub_samples]+1, colData = coldata[sub_samples,], design = ~ Replicate)
+  dds <- estimateSizeFactors(dds)
+  dds <- DESeq(dds)
+  res <- results(dds)
+  list_res[[each_cond]] <- as.data.frame(res)
+}
 ```
 
