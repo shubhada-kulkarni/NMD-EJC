@@ -14,6 +14,8 @@ library(readxl)
 library(tidyverse)
 library(DESeq2)
 library(pheatmap)
+library(topGO)
+library(org.Hs.eg.db)
 ```
 
 ## Data loading and processing
@@ -92,7 +94,7 @@ Plot the heatmap of count matrix
 print(pheatmap(sampleDistMatrix, clustering_distance_rows=sampleDists, clustering_distance_cols=sampleDists)) #,col=colors))
 ```
 
-There is clear separation between nuclear and cytoplasmic samples and also between different knockdown conditions. Next, perform the differential expression analysis on this count matrix to find differentially expressed transcript between various knockdown experiments. In this case, perform the nuclear versis cytoplasmic differential expression for all conditions i.e. knockdown experiments one-by-one.
+There is clear separation between nuclear and cytoplasmic samples and also between different knockdown conditions. Next, perform the differential expression analysis on this count matrix to find differentially expressed transcript between various knockdown experiments. In this case, perform the nuclear versus cytoplasmic differential expression for all conditions i.e. knockdown experiments one-by-one.
 ```{r eval=FALSE}
 coldata <- samples[,c("CCG_Sample_ID", "Condition", "Knockdown", "Replicate")]
 rownames(coldata) <- coldata$CCG_Sample_ID
@@ -105,6 +107,43 @@ for (each_cond in unique(coldata$Knockdown)){
   dds <- DESeq(dds)
   res <- results(dds)
   list_res[[each_cond]] <- as.data.frame(res)
+}
+```
+
+TopGO analysis on parental gene of each circularRNA to confirm if they come from the given cellular component
+```{r eval=FALSE}
+selection <- function(allScore){ return(allScore < 0.05)} # function that returns TRUE/FALSE for p-values<0.05
+allGO2genes <- annFUN.org(whichOnto="MF", feasibleGenes=NULL, mapping="org.Hs.eg.db", ID="symbol")  # only select cellular component because this is what I want to confirm first
+```
+
+Function for topGO enrichment
+```{r}
+# function takes as an input the named gene list and returns the output of topGO
+runtopGO <- function(genelist, annot, allgenes, selectfun){
+  GOdata <- new("topGOdata", ontology="MF", allGenes=genelist, annot=annot, GO2genes=allgenes, geneSel=selectfun, nodeSize=10)
+  results.ks <- runTest(GOdata, algorithm="classic", statistic="ks")
+  goEnrichment <- GenTable(GOdata, KS=results.ks, orderBy="KS", topNodes=20)
+  goEnrichment$PercentSignificant <- round((goEnrichment$Significant/goEnrichment$Annotated)*100, 2)
+  return(goEnrichment)
+}
+```
+
+For every condition, separate up and down genes and submit those for topGO enrichment analysis
+```{r eval=FALSE}
+list_goenrich <- list()
+for (each_cond in unique(coldata$Knockdown)){
+  print(each_cond)
+  up <- list_res[[each_cond]][list_res[[each_cond]]$log2FoldChange > 0,]
+  up_genes <- up$pvalue
+  names(up_genes) <- unlist(lapply(rownames(up), function(x) strsplit(x, "_")[[1]][4]))
+  down <- list_res[[each_cond]][list_res[[each_cond]]$log2FoldChange < 0,]
+  down_genes <- down$pvalue
+  names(down_genes) <- unlist(lapply(rownames(down), function(x) strsplit(x, "_")[[1]][4]))
+  # topGO analysis
+  enrich_down <- runtopGO(down_genes, annFUN.GO2genes, allGO2genes, selection)
+  enrich_up <- runtopGO(up_genes, annFUN.GO2genes, allGO2genes, selection)
+  list_goenrich[[paste(each_cond, "down", sep = "_")]] <- enrich_down
+  list_goenrich[[paste(each_cond, "up", sep = "_")]] <- enrich_up
 }
 ```
 
