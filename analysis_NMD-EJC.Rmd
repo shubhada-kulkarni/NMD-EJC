@@ -16,6 +16,7 @@ library(DESeq2)
 library(pheatmap)
 library(topGO)
 library(org.Hs.eg.db)
+library(writexl)
 ```
 
 ## Data loading and processing
@@ -110,17 +111,54 @@ for (each_cond in unique(coldata$Knockdown)){
 }
 ```
 
+dds objet for entire data
+```{r eval=FALSE}
+dds <- DESeqDataSetFromMatrix(final_data_count_fseq+1, colData = coldata, design = ~ Replicate)
+dds <- estimateSizeFactors(dds)
+```
+
+Save the DE circular RNAs in a file
+```{r eval=FALSE}
+list_res <- lapply(list_res, function(x) cbind(data.frame("id" = rownames(x)), x))  # add circular IDs as column as writexl package doesnt write rownames to the file
+write_xlsx(list_res, "DE_circular_RNAs_nucleus-cytoplasm.xlsx")
+```
+
+Number of significantly differentially expressed circular RNAs in every condition
+Down-regulated -> More expressed in cytoplasm versus in nucleus
+```{r}
+print(paste("Condition", "UP", "DOWN"))
+for (each_cond in names(list_res)){
+  #print(each_cond)
+  n_up <- nrow(list_res[[each_cond]][list_res[[each_cond]]$log2FoldChange > 0 & list_res[[each_cond]]$pvalue < 0.05, ])
+  n_down <- nrow(list_res[[each_cond]][list_res[[each_cond]]$log2FoldChange < 0 & list_res[[each_cond]]$pvalue < 0.05, ])
+  print(paste(each_cond, n_up, n_down))
+}
+```
+
+Heatmap of top differentially expressed circularRNAs (only top20 absolute logFC from each condition)
+```{r}
+selected_genes <- unique(unlist(lapply(list_res, function(x) head(x$id[order(abs(x$log2FoldChange), decreasing = T)], 20))))
+normalized_counts <- counts(dds, normalized=TRUE)
+df <- log2(normalized_counts[selected_genes,])
+```
+
+Heatmap
+```{r fig.align='center', fig.width=15, fig.height=12}
+print(pheatmap(df, cluster_rows=FALSE, show_rownames=T, cluster_cols=T, annotation_col=as.data.frame(colData(dds)[,c("Knockdown", "Replicate")]), angle_col = 45))
+```
+The heatmap shows that most of the differentially expressed circularRNAs are down-regulated i.e. expressed more in cytoplasm versus in nucleus.
+
 TopGO analysis on parental gene of each circularRNA to confirm if they come from the given cellular component
 ```{r eval=FALSE}
 selection <- function(allScore){ return(allScore < 0.05)} # function that returns TRUE/FALSE for p-values<0.05
-allGO2genes <- annFUN.org(whichOnto="MF", feasibleGenes=NULL, mapping="org.Hs.eg.db", ID="symbol")  # only select cellular component because this is what I want to confirm first
+allGO2genes <- annFUN.org(whichOnto="BP", feasibleGenes=NULL, mapping="org.Hs.eg.db", ID="symbol")  # only select cellular component because this is what I want to confirm first
 ```
 
 Function for topGO enrichment
 ```{r}
 # function takes as an input the named gene list and returns the output of topGO
 runtopGO <- function(genelist, annot, allgenes, selectfun){
-  GOdata <- new("topGOdata", ontology="MF", allGenes=genelist, annot=annot, GO2genes=allgenes, geneSel=selectfun, nodeSize=10)
+  GOdata <- new("topGOdata", ontology="BP", allGenes=genelist, annot=annot, GO2genes=allgenes, geneSel=selectfun, nodeSize=10)
   results.ks <- runTest(GOdata, algorithm="classic", statistic="ks")
   goEnrichment <- GenTable(GOdata, KS=results.ks, orderBy="KS", topNodes=20)
   goEnrichment$PercentSignificant <- round((goEnrichment$Significant/goEnrichment$Annotated)*100, 2)
