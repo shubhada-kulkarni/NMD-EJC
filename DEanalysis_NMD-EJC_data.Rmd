@@ -1,0 +1,60 @@
+---
+title: "Codes for re-analysis of differential expression of circular and linear RNAs using Circtest"
+output: html_document
+date: "2024-01-11"
+---
+
+## Loading required libraries
+
+```{r}
+library(CircTest)
+library(ggplot2)
+library(dplyr)
+library(rmarkdown)
+library(markdown)
+```
+
+# Functions
+
+Function to prepare the data in format to be inputted to CircTest
+
+```{r}
+prepare_data <- function(data_file, controls, samples){
+  data <- read.table(data_file, header = T)
+  data$id <- paste(data$Chr, ":", data$Start, "|", data$End, sep = "")
+  data$id <- make.unique(data$id, sep = "_")
+  ind_control <- unlist(lapply(controls, function(x) grep(x, colnames(data))))
+  ind_sample <- unlist(lapply(samples, function(x) grep(x, colnames(data))))
+  data <- data[,c(ncol(data), ind_control, ind_sample)]
+  colnames(data) <- c("ID", "Control_1", "Control_2", "Control_3", "Sample_1", "Sample_2", "Sample_3")
+  return(data)
+}
+```
+
+Temporary test
+```{r}
+circcount_file <- "/prj/Niels_Gehring/batchJan04_19W14/workflow_global/circtools/01_detect/CircRNACount"
+linearcount_file <- "/prj/Niels_Gehring/batchJan04_19W14/workflow_global/circtools/01_detect/LinearCount"
+control_names <- c("116616", "116618", "116620")
+sample_names <-  c("116622", "116624", "116626")
+```
+
+Calling function for each sample and getting the dataframe
+```{r}
+circrnacount <- prepare_data(circcount_file, control_names, sample_names)
+linearcount <- prepare_data(linearcount_file, control_names, sample_names)
+```
+
+Running the function to get the dataframe, for every dataset
+```{r}
+# Add pseudocounts to dataframe 
+ind <- which(sapply(circrnacount, is.integer))
+circrnacount[ind] <- circrnacount[ind] + 1
+linearcount[ind] <- linearcount[ind] + 1
+# filtering counts
+Circ_filtered <- Circ.filter(circ = circrnacount, linear = linearcount, Nreplicates = 3, filter.sample = 3, filter.count = 5, percentage = 0.01, circle_description = 1)
+Linear_filtered <- linearcount[rownames(Circ_filtered),]
+# circtest
+circtest_result <- Circ.test(Circ_filtered, Linear_filtered, group=c(rep(1,3),rep(2,3)), circle_description = 1)
+```
+
