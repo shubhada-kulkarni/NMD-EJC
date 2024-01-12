@@ -12,12 +12,13 @@ library(ggplot2)
 library(dplyr)
 library(rmarkdown)
 library(markdown)
+library(readxl)
 ```
 
-# Functions
+# Analysis
+## Functions
 
 Function to prepare the data in format to be inputted to CircTest
-
 ```{r}
 prepare_data <- function(data_file, controls, samples){
   data <- read.table(data_file, header = T)
@@ -31,30 +32,55 @@ prepare_data <- function(data_file, controls, samples){
 }
 ```
 
-Temporary test
+Function for CircTest calling
 ```{r}
-circcount_file <- "/prj/Niels_Gehring/batchJan04_19W14/workflow_global/circtools/01_detect/CircRNACount"
-linearcount_file <- "/prj/Niels_Gehring/batchJan04_19W14/workflow_global/circtools/01_detect/LinearCount"
-control_names <- c("116616", "116618", "116620")
-sample_names <-  c("116622", "116624", "116626")
+call_circtest <- function(circrnacount, linearcount){
+  # # Add pseudocounts to count dataframes
+  ind <- which(sapply(circrnacount, is.integer))
+  circrnacount[ind] <- circrnacount[ind] + 1
+  linearcount[ind] <- linearcount[ind] + 1
+  # filtering counts
+  Circ_filtered <- Circ.filter(circ = circrnacount, linear = linearcount, Nreplicates = 3, filter.sample = 3, filter.count = 5, percentage = 0.01, circle_description = 1)
+  Linear_filtered <- linearcount[rownames(Circ_filtered),]
+  # circtest command
+  circtest_result <- Circ.test(Circ_filtered, Linear_filtered, group=c(rep(1,3),rep(2,3)), circle_description = 1, alpha = 1)
+}
+```
+
+## Circtest
+Read the file with metadata for circtests
+```{r eval=FALSE}
+metadata <- read_xlsx("circtest_sample_metadata.xlsx")
 ```
 
 Calling function for each sample and getting the dataframe
-```{r}
-circrnacount <- prepare_data(circcount_file, control_names, sample_names)
-linearcount <- prepare_data(linearcount_file, control_names, sample_names)
+```{r eval=FALSE}
+list_data_circle <- list()   # list that stores all data objects that will be used for circtest and deseq2
+list_data_linear <- list()
+list_circtest <- list()
+for (i in 1:nrow(metadata)){
+  # forming file, control and sample names
+  circcount_file <- metadata$CircRNACount[i]
+  linearcount_file <- metadata$LinearRNACount[i]
+  control_names <- strsplit(metadata$Control[i], ";")[[1]]
+  sample_names <- strsplit(metadata$Sample[i], ";")[[1]]
+  print(paste(i, metadata$Data[i], metadata$Experiment[i])) #, circcount_file, linearcount_file))
+  # calling function for preparing the data
+  circrnacount <- prepare_data(circcount_file, control_names, sample_names)
+  linearcount <- prepare_data(linearcount_file, control_names, sample_names)
+  list_data_circle[[paste(metadata$Data[i], metadata$Experiment[i], sep = "__")]] <- circrnacount
+  list_data_linear[[paste(metadata$Data[i], metadata$Experiment[i], sep = "__")]] <- linearcount
+  # calling function for circtest 
+  res_circtest <- call_circtest(circrnacount, linearcount)
+  list_circtest[[paste(metadata$Data[i], metadata$Experiment[i], sep = "__")]] <- res_circtest
+}
 ```
 
-Running the function to get the dataframe, for every dataset
+Printing number of circles passed the criteria and significant circles
 ```{r}
-# Add pseudocounts to dataframe 
-ind <- which(sapply(circrnacount, is.integer))
-circrnacount[ind] <- circrnacount[ind] + 1
-linearcount[ind] <- linearcount[ind] + 1
-# filtering counts
-Circ_filtered <- Circ.filter(circ = circrnacount, linear = linearcount, Nreplicates = 3, filter.sample = 3, filter.count = 5, percentage = 0.01, circle_description = 1)
-Linear_filtered <- linearcount[rownames(Circ_filtered),]
-# circtest
-circtest_result <- Circ.test(Circ_filtered, Linear_filtered, group=c(rep(1,3),rep(2,3)), circle_description = 1)
+for (each_id in names(list_circtest)){
+  print(paste(each_id, nrow(list_circtest[[each_id]]$summary_table), nrow(list_circtest[[each_id]]$summary_table[list_circtest[[each_id]]$summary_table$sig_p < 0.05,])))
+}
 ```
 
+## DESeq2
