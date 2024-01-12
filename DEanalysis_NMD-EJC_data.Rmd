@@ -13,6 +13,8 @@ library(dplyr)
 library(rmarkdown)
 library(markdown)
 library(readxl)
+library(DESeq2)
+library(gprofiler2)
 ```
 
 # Analysis
@@ -44,6 +46,31 @@ call_circtest <- function(circrnacount, linearcount){
   Linear_filtered <- linearcount[rownames(Circ_filtered),]
   # circtest command
   circtest_result <- Circ.test(Circ_filtered, Linear_filtered, group=c(rep(1,3),rep(2,3)), circle_description = 1, alpha = 1)
+}
+```
+
+Function for DESeq2 differential expression
+```{r}
+call_deseq2 <- function(data_count){
+  rownames(data_count) <- data_count$ID
+  data_count$ID <- NULL
+  coldata <- as.data.frame(colnames(data_count))
+  colnames(coldata) <- c("Sample")
+  coldata$Type <- unlist(lapply(coldata$Sample, function(x) strsplit(x, "_")[[1]][1]))
+  coldata$Replicate <- unlist(lapply(coldata$Sample, function(x) strsplit(x, "_")[[1]][2]))
+  rownames(coldata) <- coldata$Sample
+  
+  # DE analysis
+  dds <- DESeqDataSetFromMatrix(countData = data_count+1, colData = coldata, design = ~ Type)
+  dds <- DESeq(dds)
+  res <- as.data.frame(results(dds))
+  res$padj[is.na(res$padj)] <- 1 
+  signif_res <- res[res$padj < 0.05,]
+  
+  # #PCA plot
+  # rld <- rlog(dds, blind=TRUE)
+  # plotPCA(rld, intgroup="Type") + coord_fixed()
+  return(res)
 }
 ```
 
@@ -84,3 +111,25 @@ for (each_id in names(list_circtest)){
 ```
 
 ## DESeq2
+### Circular RNAs differential expression
+```{r}
+list_deseq2_circle <- list()
+for (each_id in names(list_data_circle)){
+  res_deseq2 <- call_deseq2(list_data_circle[[each_id]])
+  list_deseq2_circle[[each_id]] <- res_deseq2
+  signif_res_deseq2 <- res_deseq2[res_deseq2$padj < 0.05,]
+  print(paste(each_id, nrow(signif_res_deseq2)))
+}
+```
+
+
+### Linear RNAs differential expression
+```{r}
+list_deseq2_linear <- list()
+for (each_id in names(list_data_linear)){
+  res_deseq2 <- call_deseq2(list_data_linear[[each_id]])
+  list_deseq2_linear[[each_id]] <- res_deseq2
+  signif_res_deseq2 <- res_deseq2[res_deseq2$padj < 0.05,]
+  print(paste(each_id, nrow(signif_res_deseq2)))
+}
+```
