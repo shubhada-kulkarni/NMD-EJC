@@ -21,7 +21,7 @@ library(gprofiler2)
 ## Functions
 
 Function to prepare the data in format to be inputted to CircTest
-```{r}
+```{r eval=FALSE}
 prepare_data <- function(data_file, controls, samples){
   data <- read.table(data_file, header = T)
   data$id <- paste(data$Chr, ":", data$Start, "|", data$End, sep = "")
@@ -35,7 +35,7 @@ prepare_data <- function(data_file, controls, samples){
 ```
 
 Function for CircTest calling
-```{r}
+```{r eval=FALSE}
 call_circtest <- function(circrnacount, linearcount){
   # # Add pseudocounts to count dataframes
   ind <- which(sapply(circrnacount, is.integer))
@@ -50,7 +50,7 @@ call_circtest <- function(circrnacount, linearcount){
 ```
 
 Function for DESeq2 differential expression
-```{r}
+```{r eval=FALSE}
 call_deseq2 <- function(data_count){
   rownames(data_count) <- data_count$ID
   data_count$ID <- NULL
@@ -71,6 +71,32 @@ call_deseq2 <- function(data_count){
   # rld <- rlog(dds, blind=TRUE)
   # plotPCA(rld, intgroup="Type") + coord_fixed()
   return(res)
+}
+```
+
+```{r}
+de_patterns <- function(circles_de, linear_de){
+  #circles_de <- deseq2_circle
+  #linear_de <- deseq2_linear
+  df <- matrix(ncol=3, nrow=nrow(circles_de))
+  for (i in 1:nrow(circles_de)){
+    if (! rownames(circles_de)[i] %in% rownames(linear_de)){
+      #print("Unique DE circle")
+      df[i,] <- c(rownames(circles_de)[i], circles_de$log2FoldChange[i], 0)
+    } else {
+      #print("This one")
+      df[i,] <- c(rownames(circles_de)[i], circles_de$log2FoldChange[i], linear_de$log2FoldChange[rownames(linear_de) %in% rownames(circles_de)[i]])
+    }
+  }
+  df <- as.data.frame(df)
+  colnames(df) <- c("ID", "Log2FC_Circle", "Log2FC_Linear")
+  df$Log2FC_Circle <- as.double(df$Log2FC_Circle)
+  df$Log2FC_Linear <- as.double(df$Log2FC_Linear)
+  df$flag_circle <- ifelse(df$Log2FC_Circle > 0, "UP", "DOWN")
+  df$flag_linear <- ifelse(df$Log2FC_Linear > 0, "UP", "DOWN")
+  df$flag_linear <- ifelse(df$Log2FC_Linear == 0, "NULL", df$flag_linear)
+  df$flag_combined <- paste(df$flag_circle, df$flag_linear, sep = "_")
+  print(table(df$flag_combined))
 }
 ```
 
@@ -112,7 +138,7 @@ for (each_id in names(list_circtest)){
 
 ## DESeq2
 ### Circular RNAs differential expression
-```{r}
+```{r eval=FALSE}
 list_deseq2_circle <- list()
 for (each_id in names(list_data_circle)){
   res_deseq2 <- call_deseq2(list_data_circle[[each_id]])
@@ -122,9 +148,8 @@ for (each_id in names(list_data_circle)){
 }
 ```
 
-
 ### Linear RNAs differential expression
-```{r}
+```{r eval=FALSE}
 list_deseq2_linear <- list()
 for (each_id in names(list_data_linear)){
   res_deseq2 <- call_deseq2(list_data_linear[[each_id]])
@@ -133,3 +158,22 @@ for (each_id in names(list_data_linear)){
   print(paste(each_id, nrow(signif_res_deseq2)))
 }
 ```
+
+## Circtest versus DESeq2 comparison
+Circtest finds out circular RNAs who's expression changes along with their linear host genes. So compare the differentially expressing circles only in DESeq2 who's linear RNAs are not DE.
+```{r}
+#`%nin%` = Negate(`%in%`)
+for (each_id in names(list_circtest)){
+  print(each_id)
+  deseq2_circle <- list_deseq2_circle[[each_id]][list_deseq2_circle[[each_id]]$padj < 0.05,]
+  deseq2_linear <- list_deseq2_linear[[each_id]][list_deseq2_linear[[each_id]]$padj < 0.05,]
+  if (nrow(deseq2_circle) == 0){
+    next
+  }
+  circtest_both <- list_circtest[[each_id]]$summary_table[list_circtest[[each_id]]$summary_table$sig_p < 0.05,]
+  # for every circle in deseq2, see if it is present in linear deseq2 list and see the log2FC enrichment
+  de_patterns(deseq2_circle, deseq2_linear)
+}
+```
+
+
