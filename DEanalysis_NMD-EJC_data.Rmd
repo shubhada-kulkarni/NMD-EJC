@@ -22,10 +22,16 @@ library(gprofiler2)
 
 Function to prepare the data in format to be inputted to CircTest
 ```{r eval=FALSE}
-prepare_data <- function(data_file, controls, samples){
+prepare_data <- function(data_file, data_file_coord, controls, samples){
   data <- read.table(data_file, header = T)
-  data$id <- paste(data$Chr, ":", data$Start, "|", data$End, sep = "")
+  data_coord <- read.table(data_file_coord, header = T, sep = "\t")
+  if (nrow(data) != nrow(data_coord)){
+    print("Number of lines do not match with Coordinate file")
+    stop()
+  }
+  data$id <- paste(data$Chr, data$Start, data$End, data_coord$Gene, sep = "_")
   data$id <- make.unique(data$id, sep = "_")
+
   ind_control <- unlist(lapply(controls, function(x) grep(x, colnames(data))))
   ind_sample <- unlist(lapply(samples, function(x) grep(x, colnames(data))))
   data <- data[,c(ncol(data), ind_control, ind_sample)]
@@ -115,12 +121,13 @@ for (i in 1:nrow(metadata)){
   # forming file, control and sample names
   circcount_file <- metadata$CircRNACount[i]
   linearcount_file <- metadata$LinearRNACount[i]
+  coordinate_file <- metadata$CircCoordinate[i]
   control_names <- strsplit(metadata$Control[i], ";")[[1]]
   sample_names <- strsplit(metadata$Sample[i], ";")[[1]]
   print(paste(i, metadata$Data[i], metadata$Experiment[i])) #, circcount_file, linearcount_file))
   # calling function for preparing the data
-  circrnacount <- prepare_data(circcount_file, control_names, sample_names)
-  linearcount <- prepare_data(linearcount_file, control_names, sample_names)
+  circrnacount <- prepare_data(circcount_file, coordinate_file, control_names, sample_names)
+  linearcount <- prepare_data(linearcount_file, coordinate_file, control_names, sample_names)
   list_data_circle[[paste(metadata$Data[i], metadata$Experiment[i], sep = "__")]] <- circrnacount
   list_data_linear[[paste(metadata$Data[i], metadata$Experiment[i], sep = "__")]] <- linearcount
   # calling function for circtest 
