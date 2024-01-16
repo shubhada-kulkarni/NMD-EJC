@@ -103,6 +103,7 @@ de_patterns <- function(circles_de, linear_de){
   df$flag_linear <- ifelse(df$Log2FC_Linear == 0, "NULL", df$flag_linear)
   df$flag_combined <- paste(df$flag_circle, df$flag_linear, sep = "_")
   print(table(df$flag_combined))
+  return(df)
 }
 ```
 
@@ -179,8 +180,30 @@ for (each_id in names(list_circtest)){
   }
   circtest_both <- list_circtest[[each_id]]$summary_table[list_circtest[[each_id]]$summary_table$sig_p < 0.05,]
   # for every circle in deseq2, see if it is present in linear deseq2 list and see the log2FC enrichment
-  de_patterns(deseq2_circle, deseq2_linear)
+  df_comparison <- de_patterns(deseq2_circle, deseq2_linear)
 }
 ```
 
+Also, create the significant results list separately for later
+```{r eval=FALSE}
+find_sig <- function(data){
+  data <- data[data$padj < 0.05,]
+  return(data)
+}
+list_deseq2_circle_sig <- lapply(list_deseq2_circle, find_sig)
+list_deseq2_linear_sig <- lapply(list_deseq2_linear, find_sig)
+```
 
+
+Combined circtest results list into one dataframe. Also add DESeq2 results as separate columns
+```{r}
+for (each_id in names(list_circtest)){
+  print(each_id)
+  each_list <- list_circtest[[each_id]]
+  data <- cbind(each_list$summary_table[,c("ID", "sig_p")], each_list$ratios)
+  rownames(data) <- data$ID
+  colnames(data) <- c("ID", "pvalue", "group_1_ratio_mean", "group_2_ratio_mean")
+  data$deseq2_circles <- ifelse(data$ID %in% rownames(list_deseq2_circle_sig[[each_id]]), TRUE, FALSE)
+  data$deseq2_linear <- ifelse(data$ID %in% rownames(list_deseq2_linear_sig[[each_id]]), TRUE, FALSE)
+}
+```
