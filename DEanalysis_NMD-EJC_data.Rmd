@@ -197,6 +197,7 @@ list_deseq2_linear_sig <- lapply(list_deseq2_linear, find_sig)
 
 Combined circtest results list into one dataframe. Also add DESeq2 results as separate columns
 ```{r}
+list_circtest_combined <- list()
 for (each_id in names(list_circtest)){
   print(each_id)
   each_list <- list_circtest[[each_id]]
@@ -205,5 +206,16 @@ for (each_id in names(list_circtest)){
   colnames(data) <- c("ID", "pvalue", "group_1_ratio_mean", "group_2_ratio_mean")
   data$deseq2_circles <- ifelse(data$ID %in% rownames(list_deseq2_circle_sig[[each_id]]), TRUE, FALSE)
   data$deseq2_linear <- ifelse(data$ID %in% rownames(list_deseq2_linear_sig[[each_id]]), TRUE, FALSE)
+  #print(table(data$deseq2_circles))
+  # unique circles from deseq2 not in circtest
+  rownames(list_deseq2_circle_sig[[each_id]]) %in% each_list$summary_table$ID
+  list_circtest_combined[[each_id]] <- data
+  
+  # correlation between deseq2 circle and linear fold changes
+  print(dim(list_deseq2_circle_sig[[each_id]]))
+  list_deseq2_circle_sig[[each_id]]$log2FoldChange_linear <- list_deseq2_linear_sig[[each_id]]$log2FoldChange[match(rownames(list_deseq2_circle_sig[[each_id]]), rownames(list_deseq2_linear_sig[[each_id]]))]
+  list_deseq2_circle_sig[[each_id]]$log2FoldChange_linear[is.na(list_deseq2_circle_sig[[each_id]]$log2FoldChange_linear)] <- 0
+  
+  print(cor.test(list_deseq2_circle_sig[[each_id]]$log2FoldChange_linear, list_deseq2_circle_sig[[each_id]]$log2FoldChange))
 }
 ```
