@@ -31,7 +31,7 @@ prepare_data <- function(data_file, data_file_coord, controls, samples){
   }
   data$id <- paste(data$Chr, data$Start, data$End, data_coord$Gene, sep = "_")
   data$id <- make.unique(data$id, sep = "_")
-
+  
   ind_control <- unlist(lapply(controls, function(x) grep(x, colnames(data))))
   ind_sample <- unlist(lapply(samples, function(x) grep(x, colnames(data))))
   data <- data[,c(ncol(data), ind_control, ind_sample)]
@@ -110,7 +110,7 @@ de_patterns <- function(circles_de, linear_de){
 ## Circtest
 Read the file with metadata for circtests
 ```{r eval=FALSE}
-metadata <- read_xlsx("circtest_sample_metadata.xlsx")
+metadata <- read_xlsx("circtest_sample_metadata.xlsx", sheet = "Sheet1")
 ```
 
 Calling function for each sample and getting the dataframe
@@ -219,3 +219,52 @@ for (each_id in names(list_circtest)){
   print(cor.test(list_deseq2_circle_sig[[each_id]]$log2FoldChange_linear, list_deseq2_circle_sig[[each_id]]$log2FoldChange))
 }
 ```
+
+
+## Genome-wide differential expression analysis
+Function for DESeq2 analysis for all genes
+```{r}
+metadata_all <- read_xlsx("circtest_sample_metadata.xlsx", sheet = "DESeq2_all")
+```
+
+Creating count matrix
+```{r}
+for (i in 1:nrow(metadata_all)){
+  print(metadata_all$ID[i])
+  sample_ids <- c(strsplit(metadata_all$Control[i], ";")[[1]], strsplit(metadata_all$Sample[i], ";")[[1]])
+  count <- 1
+  for (each_id in sample_ids){
+    print(each_id)
+    mapping_file <- grep(paste(each_id, "_STARmapping", sep = ""), list.files(paste(metadata_all$Path[i], "mapping/", sep = ""), pattern = "ReadsPerGene.out.tab", full.names = T, recursive = T), value = T)
+    mapping_out <- read.table(mapping_file)
+    mapping_out <- mapping_out[grepl("N_", mapping_out$V1) ==FALSE,]  # remove unwanted stats line
+    rownames(mapping_out) <- mapping_out$V1
+    #mapping_out$V1 <- NULL
+    if (count == 1){
+      data_count <- mapping_out[,c("V1", "V2")]
+      data_count$V1 <- NULL
+    } else {
+      temp <- data.frame(mapping_out[,c("V2")])
+      rownames(temp) <- rownames(mapping_out)
+      data_count <- merge(data_count, temp, by=0, all=TRUE)
+      rownames(data_count) <- data_count$Row.names
+      data_count$Row.names <- NULL
+    }
+    count <- count + 1 
+  }
+  colnames(data_count) <- c("Control_1", "Control_2", "Control_3", "Sample_1", "Sample_2", "Sample_3")
+}
+
+metadata <- as.data.frame(colnames(data_count))
+colnames(metadata) <- c("Sample")
+metadata$Type <- unlist(lapply(metadata$Sample, function(x) strsplit(x, "_")[[1]][1]))
+metadata$Replicate <- unlist(lapply(metadata$Sample, function(x) strsplit(x, "_")[[1]][2]))
+rownames(metadata) <- metadata$Sample
+
+dds <- DESeqDataSetFromMatrix(countData = data_count+1, colData = metadata, design = ~ Type)
+
+```
+
+
+
+
